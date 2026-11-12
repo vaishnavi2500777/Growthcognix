@@ -1,0 +1,14 @@
+/* GrowthCognix design tokens v1.0. Light is default; [data-theme="dark"] overrides. */
+:root{
+  --gc-bg:#F5F4EF; --gc-surface:#FFFFFF; --gc-surface-2:#EFEEE8; --gc-border:#E4E3DC;
+  --gc-text:#0C1210; --gc-muted:#5B635F; --gc-primary:#0F7B5F; --gc-primary-fg:#FFFFFF;
+  --gc-accent:#C8F169; --gc-success:#1F9D6B; --gc-warning:#B7791F; --gc-danger:#C2412D; --gc-info:#2F6FB0;
+  --gc-radius:10px; --gc-radius-lg:16px; --gc-space:8px;
+  --gc-font-sans:"Instrument Sans",system-ui,sans-serif; --gc-font-serif:"Instrument Serif",Georgia,serif;
+  --gc-font-mono:"JetBrains Mono",ui-monospace,monospace;
+}
+[data-theme="dark"]{
+  --gc-bg:#0C1210; --gc-surface:#141B18; --gc-surface-2:#1A2320; --gc-border:#232C28;
+  --gc-text:#F5F4EF; --gc-muted:#9AA39E; --gc-primary:#C8F169; --gc-primary-fg:#0C1210;
+  --gc-success:#4CC38A; --gc-warning:#E0A43A; --gc-danger:#E5654F; --gc-info:#6AA2DE;
+}
