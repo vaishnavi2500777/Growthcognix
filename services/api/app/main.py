@@ -9,9 +9,9 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.db import SessionLocal
 from app.errors import ApiError, api_error_handler
-from app.routers import auth, business, industries, me
+from app.routers import agents, approvals, auth, business, industries, me
 
-app = FastAPI(title="GrowthCognix API", version="0.1.0", docs_url="/api/docs",
+app = FastAPI(title="GrowthCognix API", version="0.2.0", docs_url="/api/docs",
               openapi_url="/api/openapi.json")
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins,
                    allow_methods=["*"], allow_headers=["*"])
@@ -41,5 +41,6 @@ async def health() -> dict:
     return {"status": "ok", "database": "ok"}
 
 
-for r in (auth.router, me.router, industries.router, business.router):
+for r in (auth.router, me.router, industries.router, business.router, agents.router,
+          approvals.router):
     app.include_router(r, prefix="/api/v1")

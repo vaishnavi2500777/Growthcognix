@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     access_token_minutes: int = 60 * 12
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # AI providers (free tiers first). Unset key => that capability is reported as not connected.
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash-lite"
+    tavily_api_key: str | None = None
+    run_agents_inline: bool = False  # tests: run synchronously instead of in the background
+
 
 @lru_cache
 def get_settings() -> Settings:

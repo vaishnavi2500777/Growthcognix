@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHead, Status } from "@/components/page-head";
 import { apiOrLogin } from "@/lib/api";
-import type { BusinessProfile, Me } from "@/lib/types";
+import { RUN_LABEL, RUN_TONE, when } from "@/lib/format";
+import type { BusinessProfile, Me, Run } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Overview" };
 
@@ -12,11 +13,14 @@ function greeting(tz: string) {
 }
 
 export default async function Dashboard() {
-  const [me, p] = await Promise.all([apiOrLogin<Me>("/me"), apiOrLogin<BusinessProfile>("/business-profile")]);
+  const [me, p, runs] = await Promise.all([
+    apiOrLogin<Me>("/me"), apiOrLogin<BusinessProfile>("/business-profile"), apiOrLogin<Run[]>("/runs?limit=5"),
+  ]);
+  const ran = runs.some((r) => r.status === "succeeded");
   const steps = [
     { label: "Create your workspace", done: true },
     { label: "Describe your business", done: me.onboarded, href: "/business" },
-    { label: "Switch on your first agent", done: false, note: "Market Research Agent" },
+    { label: "Run your first agent", done: ran, note: "Market Research Agent", href: "/agents" },
     { label: "Connect your marketing accounts", done: false, note: "Website, social and ads" },
   ];
   const done = steps.filter((s) => s.done).length;
@@ -70,12 +74,25 @@ export default async function Dashboard() {
         </section>
       </div>
 
-      <section className="card mt-6 flex flex-col items-start justify-between gap-4 p-6 sm:flex-row sm:items-center">
-        <div>
+      <section className="card mt-6 p-6">
+        <div className="flex items-center justify-between gap-4">
           <h2 className="font-medium">Agent activity</h2>
-          <p className="mt-1 text-sm text-muted">No agent has run yet. When one does, every step and approval appears here.</p>
+          <Link href="/agents" className="text-sm text-muted hover:text-ink">All agents</Link>
         </div>
-        <Link href="/agents" className="btn btn-ghost">View agents</Link>
+        {runs.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">No agent has run yet. When one does, every step and approval appears here.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-line">
+            {runs.map((r) => (
+              <li key={r.id}>
+                <Link href={`/runs/${r.id}`} className="flex items-center justify-between gap-3 py-3 hover:text-primary">
+                  <span className="text-[15px]">Market research <span className="text-sm text-muted">· {when(r.created_at, me.organization.timezone)}</span></span>
+                  <Status tone={RUN_TONE[r.status]}>{RUN_LABEL[r.status]}</Status>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </>
   );

@@ -36,7 +36,7 @@ async function Onboarding() {
           Your agents start from this profile. Be specific; you can change it any time.
         </p>
       </div>
-      <BusinessForm industries={industries} next="/dashboard" submitLabel="Save and continue" />
+      <BusinessForm industries={industries} defaultCompany={me.organization.name} next="/dashboard" submitLabel="Save and continue" />
     </div>
   );
 }

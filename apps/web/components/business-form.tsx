@@ -24,8 +24,9 @@ function Section({ n, title, hint, children }: { n: string; title: string; hint:
   );
 }
 
-export function BusinessForm({ industries, initial, next, submitLabel }: {
+export function BusinessForm({ industries, initial, next, submitLabel, defaultCompany }: {
   industries: Industry[]; initial?: BusinessProfile | null; next: string; submitLabel: string;
+  defaultCompany?: string;
 }) {
   const [state, action, pending] = useActionState(saveBusinessProfile, undefined);
   const f = state?.fields ?? {};
@@ -48,7 +49,7 @@ export function BusinessForm({ industries, initial, next, submitLabel }: {
 
       <Section n="01" title="Company" hint="How customers know you.">
         <label className="field"><span>Business name</span>
-          <input className="input" name="company_name" defaultValue={initial?.company_name} required minLength={2} />
+          <input className="input" name="company_name" defaultValue={initial?.company_name ?? defaultCompany} required minLength={2} />
           <FieldError message={f.company_name} />
         </label>
         <label className="field"><span>Website <span className="text-muted font-normal">(optional)</span></span>

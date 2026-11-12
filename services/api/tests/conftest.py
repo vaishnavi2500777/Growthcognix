@@ -20,6 +20,9 @@ OWNER = ADMIN.split("//", 1)[1].split("@", 1)[0]
 os.environ["DATABASE_URL"] = f"postgresql+asyncpg://gc_app:gc_app@{HOST}/{DB}"
 os.environ["MIGRATION_DATABASE_URL"] = f"postgresql+psycopg://{OWNER}@{HOST}/{DB}"
 os.environ["JWT_SECRET"] = "test-secret-0123456789abcdef0123456789"
+os.environ["RUN_AGENTS_INLINE"] = "true"
+os.environ.pop("GEMINI_API_KEY", None)
+os.environ.pop("TAVILY_API_KEY", None)
 
 
 def pytest_sessionstart(session):
