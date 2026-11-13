@@ -22,18 +22,31 @@ export type Step = {
   summary: string | null; started_at: string; finished_at: string | null;
 };
 type Basis = { basis: string[] };
-export type Report = {
-  summary: string;
+export type Source = { id: string; kind: string; title: string; url: string | null };
+type Common = { summary: string; open_questions: string[]; sources: Source[]; limitations: string[] };
+export type Report = Common & {
   strengths: ({ point: string } & Basis)[];
   gaps: ({ point: string } & Basis)[];
   audiences: ({ segment: string; needs: string; where_to_reach: string } & Basis)[];
   competitors: ({ name: string; url: string; notes: string } & Basis)[];
   opportunities: ({ title: string; why: string; first_step: string; channel: string } & Basis)[];
-  open_questions: string[];
-  sources: { id: string; kind: string; title: string; url: string | null }[];
-  limitations: string[];
 };
-export type RunDetail = Run & { output: Report | null; steps: Step[] };
+export type CompetitorReport = Common & {
+  competitors: ({
+    name: string; url: string; what_they_sell: string; positioning: string; pricing_signals: string;
+    strengths: string[]; weaknesses: string[];
+  } & Basis)[];
+  comparison: ({ dimension: string; this_business: string; competitors: string } & Basis)[];
+  differentiation: ({ title: string; why: string; first_step: string } & Basis)[];
+};
+export type PersonaReport = Common & {
+  personas: ({
+    name: string; role: string; segment: string; goals: string[]; pains: string[];
+    buying_triggers: string[]; objections: string[]; channels: string[]; languages: string[];
+    message: string;
+  } & Basis)[];
+};
+export type RunDetail = Run & { output: Report | CompetitorReport | PersonaReport | null; steps: Step[] };
 export type Agent = {
   slug: string; code: string; name: string; level: number; department: string;
   description: string; risk: string; version: string; can_run: boolean;

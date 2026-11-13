@@ -9,6 +9,11 @@ import type { Agent, Run } from "@/lib/types";
 export const metadata: Metadata = { title: "Agents" };
 
 const RISK = { read: "Reads only", draft: "Drafts for review", external: "Acts only with approval" };
+const RUN_LABEL_FOR: Record<string, string> = {
+  "market-research": "Run research",
+  "competitor-analysis": "Analyse competitors",
+  "customer-persona": "Build personas",
+};
 
 export default async function Agents() {
   const [agents, runs] = await Promise.all([apiOrLogin<Agent[]>("/agents"), apiOrLogin<Run[]>("/runs?limit=20")]);
@@ -38,7 +43,7 @@ export default async function Agents() {
               </div>
               <div className="w-full sm:w-auto">
                 {a.can_run
-                  ? <RunButton slug={a.slug} label={a.last_run ? "Run again" : "Run research"} />
+                  ? <RunButton slug={a.slug} label={a.last_run ? "Run again" : (RUN_LABEL_FOR[a.slug] ?? "Run agent")} />
                   : <Status tone="wait">{a.blocked_reason}</Status>}
               </div>
             </div>

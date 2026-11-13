@@ -12,6 +12,8 @@ Built in Bengaluru · +91 90190 88160
 - Light and dark themes.
 - **Agent engine**: every run and every step is stored and shown live; model gateway (Gemini free tier today, swappable); approvals queue where agents can only request and people decide, with payload hashing and idempotency keys.
 - **A001 Market Research Agent**: reads your profile and your website (safely; internal addresses are refused), optionally searches the web, and writes strengths, gaps, audiences, competitors and opportunities. Every finding must cite a source; anything unsupported is removed before you see it.
+- **A005 Competitor Analysis Agent**: searches for competitors in your markets, reads up to five of their websites, and compares them with you (what they sell, positioning, prices only where they publish them, strengths and weaknesses). Without web search it says so and lists no competitors rather than guessing.
+- **A006 Customer Persona Agent**: turns your profile, website, latest market research and (optionally) web search into buyer personas by role: goals, pains, buying triggers, objections, channels, languages and the message that will land. No invented statistics, ages, incomes or quotes.
 - Multi-tenant PostgreSQL with Row-Level Security enforced by the database, an append-only audit log, and tests that prove one business cannot read or write another's data.
 
 ## Stack (free tools)
