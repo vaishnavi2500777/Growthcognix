@@ -162,10 +162,11 @@ async def robots_allowed(url: str, ua="CrawlMonkBot") -> bool:
         rp = None
         try:
             r = await fetch(base + "/robots.txt", timeout=10, ua=config.BOT_UA)
-            if r.status < 400:
+            # Google's rules: 2xx = obey, 4xx = no robots.txt (allow), 5xx/429 = temporarily disallow all
+            if r.status < 300 and "html" not in r.content_type:
                 rp = RobotFileParser()
                 rp.parse(r.text.splitlines())
-            elif r.status in (401, 403):
+            elif r.status >= 500 or r.status == 429:
                 rp = RobotFileParser()
                 rp.parse(["User-agent: *", "Disallow: /"])
         except FetchError:

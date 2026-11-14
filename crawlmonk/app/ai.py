@@ -1,4 +1,5 @@
 """Gemini calls. No key => AIUnavailable (never fake output)."""
+import asyncio
 import json
 import re
 
@@ -31,7 +32,11 @@ async def generate(prompt: str, *, json_mode=False, system: str | None = None, m
         body["systemInstruction"] = {"parts": [{"text": system}]}
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent"
     async with httpx.AsyncClient(timeout=90) as c:
-        r = await c.post(url, json=body, headers={"x-goog-api-key": config.GEMINI_API_KEY})
+        for delay in (4, 12, 0):  # free tier: transient 503 "high demand" and per-minute 429s
+            r = await c.post(url, json=body, headers={"x-goog-api-key": config.GEMINI_API_KEY})
+            if r.status_code not in (429, 500, 503) or not delay:
+                break
+            await asyncio.sleep(delay)
     if r.status_code == 429:
         raise AIError("Gemini free-tier rate limit reached; try again in a minute")
     if r.status_code >= 400:

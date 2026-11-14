@@ -321,6 +321,11 @@ async def enrich(lead: dict, city: str, state: str | None, kws: list[str]):
     sig["website_ok"] = True
     pages = [r]
     s = parse.soup_of(r.text)
+    head_txt = s.get_text(" ", strip=True)[:3000].lower()
+    if re.search(r"account (has been )?suspended|domain (name )?(is )?for sale|buy this domain|parked (free|domain)|"
+                 r"this domain (has expired|is parked)|website is under construction|coming soon|"
+                 r"default web site page|index of /", head_txt) or len(head_txt) < 60:
+        sig["parked_or_broken"] = True
     parse.absolutize(s, r.final_url)
     sig.update(parse.site_signals(s, r.text, r.final_url))
     if not lead["name"]:
@@ -383,13 +388,16 @@ def score(lead: dict, kws: list[str], goal: str) -> tuple[int, str]:
     if lead["emails"]:
         con += 13
         why.append("public email found")
-    if sig.get("website_ok"):
+    if sig.get("website_ok") and not sig.get("parked_or_broken"):
         con += 10
     opp = 0
     if goal == "agency":
         if not lead.get("website"):
             opp += 10
             why.append("no website")
+        elif sig.get("parked_or_broken") or sig.get("website_ok") is False:
+            opp += 12
+            why.append("website down/parked/suspended")
         elif sig.get("website_ok"):
             if "instagram" not in lead["socials"]:
                 opp += 6
