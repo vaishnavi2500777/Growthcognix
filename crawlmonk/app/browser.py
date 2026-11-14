@@ -161,6 +161,10 @@ async def render(url: str, *, wait_for=0, timeout=30, mobile=False, headers=None
                 shot = await page.screenshot(full_page=screenshot == "full", type="png")
             return {"html": await page.content(), "final_url": page.url,
                     "status": resp.status if resp else 200, "screenshot": shot, "actions": acts}
+        except FetchError:
+            raise
+        except Exception as e:
+            raise FetchError(f"Browser error: {str(e).splitlines()[0][:200]}", "BROWSER_ERROR")
         finally:
             await ctx.close()
 

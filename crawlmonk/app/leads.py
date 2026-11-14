@@ -299,6 +299,21 @@ async def web_candidates(category: str, city: str, state: str | None, n=25) -> l
     return out
 
 
+def clean_name(t: str, url: str) -> str:
+    host = (urlparse(url).hostname or "").removeprefix("www.")
+    parts = [p.strip(" -|:–") for p in re.split(r"\s[|\-–:•]\s|\s[|–•]\s?|:\s", t or "") if p.strip(" -|:–")]
+    parts = [re.sub(r"^(welcome to|home ?page|home)\b[\s:,-]*", "", p, flags=re.I).strip() for p in parts]
+    parts = [p for p in parts if p and p.lower() not in ("home", "home page", "index", "welcome")]
+    # prefer the part that looks like the brand (shares a word with the domain)
+    stem = re.sub(r"\.(co\.in|com|in|net|org|co|biz|info)$", "", host).lower()
+    for p in parts:
+        if any(w in stem for w in re.findall(r"[a-z]{4,}", p.lower())):
+            return p[:120]
+    if parts and len(parts[0]) <= 60:
+        return parts[0]
+    return stem.replace("-", " ").title() or host
+
+
 CONTACT_RX = re.compile(r"contact|about|reach|enquir|location|find-us", re.I)
 
 
@@ -331,7 +346,7 @@ async def enrich(lead: dict, city: str, state: str | None, kws: list[str]):
     if not lead["name"]:
         og = s.find("meta", property="og:site_name")
         t = (og.get("content") if og else None) or (s.title.string if s.title and s.title.string else "") or lead.get("_title", "")
-        lead["name"] = re.split(r"\s[|\-–:]\s", t.strip())[0][:120] if t else urlparse(url).hostname
+        lead["name"] = clean_name(t, r.final_url)
     sub = [a["href"] for a in s.find_all("a", href=True) if CONTACT_RX.search(a["href"]) and
            urlparse(a["href"]).hostname == urlparse(r.final_url).hostname][:2]
     if lead["source"] == "web_search" and lead.get("source_ref") and \
