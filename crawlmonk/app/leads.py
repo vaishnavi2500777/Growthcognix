@@ -136,8 +136,7 @@ def tag_filters(category: str) -> list[tuple[str, str | None]]:
     return out
 
 
-def build_query(geo: dict, category: str, kws: list[str], radius_km=15) -> str:
-    area = ""
+def build_queries(geo: dict, category: str, kws: list[str], radius_km=15) -> list[str]:
     if geo.get("bbox"):  # bbox queries are far cheaper than area queries on public Overpass servers
         b = geo["bbox"]
         scope = f"({b[0]:.4f},{b[1]:.4f},{b[2]:.4f},{b[3]:.4f})"
@@ -146,19 +145,17 @@ def build_query(geo: dict, category: str, kws: list[str], radius_km=15) -> str:
     tags = tag_filters(category)
     kre = "|".join(re.escape(k) for k in kws)
     stmts = []
-    only_tags = not kws
-    for k, v in tags:
-        sel = f'["{k}"~"^({v})$"]' if v else f'["{k}"]'
-        if only_tags:
+    if not kws:  # pure category: every named place with the mapped tags
+        for k, v in tags:
+            sel = f'["{k}"~"^({v})$"]' if v else f'["{k}"]'
             stmts.append(f'nwr{sel}["name"]{scope};')
-        else:
-            for key in ("name", "product", "industrial"):
-                stmts.append(f'nwr{sel}["{key}"~"{kre}",i]{scope};')
-    if kre:
-        stmts.append(f'nwr["name"~"{kre}",i]{scope};')
+    else:  # keyword: match name / product / industrial tags anywhere in the city
+        for key in ("name", "product", "industrial"):
+            stmts.append(f'nwr["{key}"~"{kre}",i]{scope};')
     if not stmts:
         raise LeadError("Category too vague; add a keyword such as 'clinic' or 'PTFE'")
-    return f"[out:json][timeout:60];{area}({''.join(stmts)});out center tags 3000;"
+    # small single-statement queries: public Overpass servers time out on big unions
+    return [f"[out:json][timeout:60];{st}out center tags 2000;" for st in stmts]
 
 
 async def _overpass_one(ep: str, q: str) -> list[dict]:
@@ -170,27 +167,32 @@ async def _overpass_one(ep: str, q: str) -> list[dict]:
 
 
 async def overpass(q: str) -> list[dict]:
-    """Race two public Overpass servers, then fall back to the others one by one."""
+    """Try the public Overpass servers with retries (they return 504/timeouts under load)."""
     errs = []
+    for attempt in range(3):
+        for ep in OVERPASS[:2] if attempt else OVERPASS:
+            try:
+                return await _overpass_one(ep, q)
+            except Exception as e:
+                errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:60]}")
+        await asyncio.sleep(5 * (attempt + 1))
+    raise LeadError("OpenStreetMap Overpass unavailable (" + "; ".join(errs[-4:]) + ")")
 
-    def note(ep, e):
-        errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:80]}")
-    tasks = {asyncio.create_task(_overpass_one(ep, q)): ep for ep in OVERPASS[:2]}  # race two servers
-    pending = set(tasks)
-    while pending:
-        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-        for t in done:
-            if t.exception() is None:
-                for p in pending:
-                    p.cancel()
-                return t.result()
-            note(tasks[t], t.exception())
-    for ep in OVERPASS[2:]:
+
+async def osm_elements(geo, category, kws, report) -> tuple[list[dict], list[str]]:
+    qs = build_queries(geo, category, kws)
+    seen, out, errs = set(), [], []
+    for i, q in enumerate(qs):
+        await report(stage=f"{geo['name'].split(',')[0]}: OpenStreetMap query {i + 1}/{len(qs)}")
         try:
-            return await _overpass_one(ep, q)
-        except Exception as e:
-            note(ep, e)
-    raise LeadError("OpenStreetMap Overpass unavailable (" + "; ".join(errs) + ")")
+            for e in await overpass(q):
+                k = (e["type"], e["id"])
+                if k not in seen:
+                    seen.add(k)
+                    out.append(e)
+        except LeadError as e:
+            errs.append(str(e))
+    return out, errs
 
 
 def from_osm(el: dict, city: str) -> dict | None:
@@ -401,12 +403,11 @@ async def find_city(city: str, state: str | None, p: dict, report) -> tuple[list
     raw = []
     if "osm" in p.get("sources", ["osm", "web"]):
         await report(stage=f"{city}: querying OpenStreetMap")
-        try:
-            els = await overpass(build_query(geo, category, kws))
-            raw += [x for x in (from_osm(e, city) for e in els) if x]
-            stats["osm_found"] = len(raw)
-        except LeadError as e:
-            stats["osm_error"] = str(e)
+        els, errs = await osm_elements(geo, category, kws, report)
+        raw += [x for x in (from_osm(e, city) for e in els) if x]
+        stats["osm_found"] = len(raw)
+        if errs:
+            stats["osm_error"] = f"{len(errs)} of the OpenStreetMap queries failed: {errs[0]}"
     if "web" in p.get("sources", ["osm", "web"]):
         await report(stage=f"{city}: searching the web")
         w = await web_candidates(category, city, state)
