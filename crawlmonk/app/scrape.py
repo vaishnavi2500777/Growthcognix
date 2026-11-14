@@ -7,7 +7,8 @@ import uuid
 from . import ai, browser, config, db, parse
 from .net import FetchError, fetch
 
-TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain", "application/xml", "text/xml", "")
+TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain", "application/xml", "text/xml", "", "application/json",
+              "application/ld+json", "application/rss+xml", "application/atom+xml")
 
 
 def norm_formats(formats):
@@ -81,6 +82,11 @@ async def scrape(url: str, opts: dict | None = None, user_id: int | None = None)
             engine_used += f"+{kind}"
         elif ct not in TEXT_TYPES and not ct.startswith("text/"):
             raise FetchError(f"Unsupported content type {ct}", "UNSUPPORTED_TYPE")
+        elif "json" in ct or ct == "text/plain":
+            doc_md = ("```json\n" + r.text + "\n```") if "json" in ct else r.text
+            doc_meta = {}
+            if "rawHtml" in fm:
+                o["_raw"] = r.text
         else:
             html = r.text
             txt = parse.soup_of(html).get_text(" ", strip=True)
@@ -99,7 +105,8 @@ async def scrape(url: str, opts: dict | None = None, user_id: int | None = None)
     if doc_md is not None:
         md = doc_md
         meta = {"sourceURL": url, "url": final_url, "statusCode": status, "contentType": ct, **doc_meta}
-        soup = None
+        if o.get("_raw") is not None:
+            out["rawHtml"] = o.pop("_raw")
     else:
         soup = parse.soup_of(html)
         parse.absolutize(soup, final_url)

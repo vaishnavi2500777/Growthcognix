@@ -6,8 +6,38 @@ import re
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 from xml.etree import ElementTree
 
+import os
+
+import httpx
+
 from . import parse
 from .net import FetchError, fetch
+
+SERPER_KEY = os.getenv("SERPER_API_KEY", "")
+TAVILY_KEY = os.getenv("TAVILY_API_KEY", "")
+
+
+async def serper(q: str, limit=10, news=False) -> list[dict]:
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(f"https://google.serper.dev/{'news' if news else 'search'}",
+                         json={"q": q, "gl": "in", "num": min(limit, 100)}, headers={"X-API-KEY": SERPER_KEY})
+    if r.status_code != 200:
+        raise FetchError(f"Serper HTTP {r.status_code}", "SEARCH_PROVIDER")
+    d = r.json()
+    items = d.get("news" if news else "organic", [])
+    return [{"url": x.get("link"), "title": x.get("title", ""), "description": x.get("snippet", ""),
+             "source": "serper", **({"date": x.get("date")} if news else {})} for x in items][:limit]
+
+
+async def tavily(q: str, limit=10, news=False) -> list[dict]:
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post("https://api.tavily.com/search", json={"query": q, "max_results": min(limit, 20),
+                                                                 "topic": "news" if news else "general"},
+                         headers={"Authorization": f"Bearer {TAVILY_KEY}"})
+    if r.status_code != 200:
+        raise FetchError(f"Tavily HTTP {r.status_code}", "SEARCH_PROVIDER")
+    return [{"url": x.get("url"), "title": x.get("title", ""), "description": (x.get("content") or "")[:300],
+             "source": "tavily"} for x in r.json().get("results", [])][:limit]
 
 
 def _bing_real(href: str) -> str:
@@ -139,7 +169,12 @@ async def _ddg_html(q: str, limit=10) -> list[dict]:
 
 async def web(q: str, limit=10, tbs: str | None = None) -> tuple[list[dict], str | None]:
     age = {"qdr:d": "1d", "qdr:w": "1w", "qdr:m": "1m"}.get(tbs or "")
-    engines = [("yahoo", lambda: yahoo(q, limit, age)), ("duckduckgo", lambda: _ddg_html(q, limit)),
+    engines = []
+    if SERPER_KEY:
+        engines.append(("serper", lambda: serper(q, limit)))
+    if TAVILY_KEY:
+        engines.append(("tavily", lambda: tavily(q, limit)))
+    engines += [("yahoo", lambda: yahoo(q, limit, age)), ("duckduckgo", lambda: _ddg_html(q, limit)),
                ("duckduckgo-lite", lambda: ddg_lite(q, limit)), ("bing", lambda: bing(q, limit, tbs=TBS.get(tbs or "")))]
     notes = []
     for name, fn in engines:
@@ -154,7 +189,8 @@ async def web(q: str, limit=10, tbs: str | None = None) -> tuple[list[dict], str
         if res and _relevant(q, res):
             return res, None
         notes.append(f"{name}: no relevant results (likely bot-filtered)")
-    return [], "All free search engines refused or returned unrelated results: " + "; ".join(notes)
+    return [], ("All free search engines refused or returned unrelated results (they block datacenter IPs); set "
+                "SERPER_API_KEY or TAVILY_API_KEY for reliable search: " + "; ".join(notes))
 
 
 async def search(q: str, limit=5, sources=None, tbs=None):

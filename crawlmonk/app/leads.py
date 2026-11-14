@@ -12,9 +12,9 @@ import httpx
 from . import ai, config, net, parse, search
 from .net import FetchError
 
-OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter",
-            "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+# maps.mail.ru answered fastest from Render Singapore; overpass-api.de refused connections from Render IPs.
+OVERPASS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+            "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
 
 # keyword -> OSM tag filters (key, regex or None for any value)
 TAGMAP = [
@@ -82,8 +82,16 @@ async def geocode(city: str, state: str | None) -> dict:
     g = res[0]
     out = {"name": g.get("display_name"), "lat": float(g["lat"]), "lon": float(g["lon"]),
            "osm_type": g.get("osm_type"), "osm_id": int(g["osm_id"])}
+    if g.get("boundingbox"):
+        s_, n_, w_, e_ = map(float, g["boundingbox"])
+        out["bbox"] = _cap_bbox(s_, w_, n_, e_, out["lat"], out["lon"])
     _geo_cache[q.lower()] = out
     return out
+
+
+def _cap_bbox(s, w, n, e, lat, lon, half=0.25):
+    """Clamp to ~55 km square around the centre so district-sized results stay city-sized."""
+    return (max(s, lat - half), max(w, lon - half), min(n, lat + half), min(e, lon + half))
 
 
 async def _photon(q: str) -> dict:
@@ -99,6 +107,9 @@ async def _photon(q: str) -> dict:
     lon, lat = f["geometry"]["coordinates"]
     out = {"name": ", ".join(x for x in [f["properties"].get("name"), f["properties"].get("state"), "India"] if x),
            "lat": lat, "lon": lon, "osm_type": "node", "osm_id": f["properties"]["osm_id"], "geocoder": "photon"}
+    ext = f["properties"].get("extent")  # [minlon, maxlat, maxlon, minlat]
+    if ext and len(ext) == 4:
+        out["bbox"] = _cap_bbox(ext[3], ext[0], ext[1], ext[2], lat, lon)
     _geo_cache[q.lower()] = out
     return out
 
@@ -126,11 +137,11 @@ def tag_filters(category: str) -> list[tuple[str, str | None]]:
 
 
 def build_query(geo: dict, category: str, kws: list[str], radius_km=15) -> str:
-    if geo["osm_type"] == "relation":
-        area = f"area(id:{3600000000 + geo['osm_id']})->.a;"
-        scope = "(area.a)"
+    area = ""
+    if geo.get("bbox"):  # bbox queries are far cheaper than area queries on public Overpass servers
+        b = geo["bbox"]
+        scope = f"({b[0]:.4f},{b[1]:.4f},{b[2]:.4f},{b[3]:.4f})"
     else:
-        area = ""
         scope = f"(around:{radius_km * 1000},{geo['lat']},{geo['lon']})"
     tags = tag_filters(category)
     kre = "|".join(re.escape(k) for k in kws)
@@ -164,7 +175,7 @@ async def overpass(q: str) -> list[dict]:
 
     def note(ep, e):
         errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:80]}")
-    tasks = {asyncio.create_task(_overpass_one(ep, q)): ep for ep in OVERPASS[:2]}
+    tasks = {asyncio.create_task(_overpass_one(ep, q)): ep for ep in OVERPASS[:2]}  # race two servers
     pending = set(tasks)
     while pending:
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
