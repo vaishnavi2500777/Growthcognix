@@ -13,7 +13,7 @@ from . import ai, auth, crawler, db, leads, net, search
 from .net import FetchError
 from .scrape import scrape
 
-WORKERS = 2
+WORKERS = 3
 _wake = asyncio.Event()
 
 

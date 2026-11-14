@@ -13,6 +13,7 @@ from . import ai, config, net, parse, search
 from .net import FetchError
 
 # maps.mail.ru answered fastest from Render Singapore; overpass-api.de refused connections from Render IPs.
+# overpass.openstreetmap.fr is whitelist-only. maps.mail.ru answers fast but often 504s instantly under load.
 OVERPASS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.private.coffee/api/interpreter",
             "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
 
@@ -160,23 +161,71 @@ def build_queries(geo: dict, category: str, kws: list[str], radius_km=15) -> lis
 
 async def _overpass_one(ep: str, q: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), headers={"User-Agent": config.BOT_UA}) as c:
-        r = await asyncio.wait_for(c.post(ep, data={"data": q}), 80)  # hard deadline (servers trickle keep-alives)
+        r = await asyncio.wait_for(c.post(ep, data={"data": q}), 70)  # hard deadline (servers trickle keep-alives)
     if r.status_code != 200:
         raise LeadError(f"{urlparse(ep).hostname} HTTP {r.status_code}")
-    return r.json().get("elements", [])
+    try:
+        d = r.json()
+    except ValueError:
+        raise LeadError(f"{urlparse(ep).hostname} returned non-JSON: {r.text[:80]}")
+    if d.get("remark") and "error" in d["remark"].lower() and not d.get("elements"):
+        raise LeadError(f"{urlparse(ep).hostname}: {d['remark'][:80]}")
+    return d.get("elements", [])
 
 
 async def overpass(q: str) -> list[dict]:
     """Try the public Overpass servers with retries (they return 504/timeouts under load)."""
     errs = []
-    for attempt in range(3):
-        for ep in OVERPASS[:2] if attempt else OVERPASS:
-            try:
-                return await _overpass_one(ep, q)
-            except Exception as e:
-                errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:60]}")
-        await asyncio.sleep(5 * (attempt + 1))
+    mail, coffee, de, kumi = OVERPASS
+    for ep in (mail, mail, coffee, mail, mail, kumi, mail, de, mail):
+        try:
+            return await _overpass_one(ep, q)
+        except Exception as e:
+            errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:60]}")
+        await asyncio.sleep(6)
     raise LeadError("OpenStreetMap Overpass unavailable (" + "; ".join(errs[-4:]) + ")")
+
+
+async def _nominatim(params: str):
+    global _nom_last
+    async with _nom_lock:
+        wait = _nom_last + 1.1 - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _nom_last = time.monotonic()
+        return await net.fetch("https://nominatim.openstreetmap.org/search?" + params, ua=config.BOT_UA, timeout=20)
+
+
+async def nominatim_pois(geo, category, kws, cap=120) -> list[dict]:
+    """Fallback when Overpass is down: Nominatim POI search (special phrases), with extratags for phone/website."""
+    terms = list(kws)
+    if not terms:
+        for _, v in tag_filters(category):
+            terms += (v or "").split("|")
+    terms = [t for t in dict.fromkeys(terms) if t][:6]
+    b = geo.get("bbox") or (geo["lat"] - .2, geo["lon"] - .2, geo["lat"] + .2, geo["lon"] + .2)
+    out, excl = [], []
+    for t in terms:
+        for _ in range(2):
+            ps = (f"q={quote_plus(t)}&format=jsonv2&extratags=1&addressdetails=1&limit=40&countrycodes=in&bounded=1"
+                  f"&viewbox={b[1]},{b[2]},{b[3]},{b[0]}" + (f"&exclude_place_ids={','.join(excl[-200:])}" if excl else ""))
+            r = await _nominatim(ps)
+            if r.status != 200:
+                return out
+            res = json.loads(r.text)
+            for x in res:
+                excl.append(str(x["place_id"]))
+                if not x.get("name"):
+                    continue
+                a = x.get("address") or {}
+                tags = {"name": x["name"], x.get("category", "place"): x.get("type", ""), **(x.get("extratags") or {}),
+                        "addr:street": a.get("road"), "addr:suburb": a.get("suburb") or a.get("neighbourhood"),
+                        "addr:city": a.get("city") or a.get("town"), "addr:postcode": a.get("postcode")}
+                out.append({"type": x.get("osm_type", "node"), "id": x.get("osm_id"), "lat": float(x["lat"]),
+                            "lon": float(x["lon"]), "tags": {k: v for k, v in tags.items() if v}})
+            if len(res) < 40 or len(out) >= cap:
+                break
+    return out
 
 
 async def osm_elements(geo, category, kws, report) -> tuple[list[dict], list[str]]:
@@ -192,6 +241,14 @@ async def osm_elements(geo, category, kws, report) -> tuple[list[dict], list[str
                     out.append(e)
         except LeadError as e:
             errs.append(str(e))
+    if not out and errs:
+        await report(stage=f"{geo['name'].split(',')[0]}: Overpass down, using Nominatim search")
+        try:
+            out = await nominatim_pois(geo, category, kws)
+            if out:
+                errs = [f"Overpass unavailable; used Nominatim POI search instead ({len(out)} places)"]
+        except FetchError as e:
+            errs.append(f"Nominatim: {e}")
     return out, errs
 
 
