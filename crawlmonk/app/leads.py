@@ -147,21 +147,39 @@ def build_query(geo: dict, category: str, kws: list[str], radius_km=15) -> str:
         stmts.append(f'nwr["name"~"{kre}",i]{scope};')
     if not stmts:
         raise LeadError("Category too vague; add a keyword such as 'clinic' or 'PTFE'")
-    return f"[out:json][timeout:90];{area}({''.join(stmts)});out center tags 3000;"
+    return f"[out:json][timeout:60];{area}({''.join(stmts)});out center tags 3000;"
+
+
+async def _overpass_one(ep: str, q: str) -> list[dict]:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), headers={"User-Agent": config.BOT_UA}) as c:
+        r = await asyncio.wait_for(c.post(ep, data={"data": q}), 80)  # hard deadline (servers trickle keep-alives)
+    if r.status_code != 200:
+        raise LeadError(f"{urlparse(ep).hostname} HTTP {r.status_code}")
+    return r.json().get("elements", [])
 
 
 async def overpass(q: str) -> list[dict]:
-    last = None
-    for ep in OVERPASS:
+    """Race two public Overpass servers, then fall back to the others one by one."""
+    errs = []
+
+    def note(ep, e):
+        errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:80]}")
+    tasks = {asyncio.create_task(_overpass_one(ep, q)): ep for ep in OVERPASS[:2]}
+    pending = set(tasks)
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for t in done:
+            if t.exception() is None:
+                for p in pending:
+                    p.cancel()
+                return t.result()
+            note(tasks[t], t.exception())
+    for ep in OVERPASS[2:]:
         try:
-            async with httpx.AsyncClient(timeout=100, headers={"User-Agent": config.BOT_UA}) as c:
-                r = await c.post(ep, data={"data": q})
-            if r.status_code == 200:
-                return r.json().get("elements", [])
-            last = f"{ep} HTTP {r.status_code}"
-        except (httpx.HTTPError, ValueError) as e:
-            last = f"{ep} {type(e).__name__}"
-    raise LeadError(f"OpenStreetMap Overpass unavailable ({last})")
+            return await _overpass_one(ep, q)
+        except Exception as e:
+            note(ep, e)
+    raise LeadError("OpenStreetMap Overpass unavailable (" + "; ".join(errs) + ")")
 
 
 def from_osm(el: dict, city: str) -> dict | None:

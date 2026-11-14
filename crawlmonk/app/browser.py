@@ -87,8 +87,20 @@ async def _new_context(mobile=False, headers=None):
 
 async def run_actions(page, actions: list[dict]) -> dict:
     out = {"screenshots": [], "scrapes": [], "javascriptReturns": []}
-    for a in actions or []:
-        t = a.get("type")
+    for i, a in enumerate(actions or []):
+        try:
+            await _one_action(page, a, out)
+        except FetchError:
+            raise
+        except Exception as e:
+            raise FetchError(f"Action {i} ({a.get('type')}) failed: {str(e).splitlines()[0][:200]}", "ACTION_FAILED")
+        await page.wait_for_timeout(150)
+    return out
+
+
+async def _one_action(page, a, out):
+    t = a.get("type")
+    if True:
         if t == "wait":
             if a.get("selector"):
                 await page.wait_for_selector(a["selector"], timeout=a.get("timeout", 15000))
@@ -120,8 +132,6 @@ async def run_actions(page, actions: list[dict]) -> dict:
             out["javascriptReturns"].append({"value": await page.evaluate(a.get("script", "null"))})
         else:
             raise FetchError(f"Unknown action type: {t}", "BAD_ACTION")
-        await page.wait_for_timeout(150)
-    return out
 
 
 async def render(url: str, *, wait_for=0, timeout=30, mobile=False, headers=None, actions=None,

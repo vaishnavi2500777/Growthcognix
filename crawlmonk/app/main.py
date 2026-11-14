@@ -30,7 +30,7 @@ async def startup():
 @app.exception_handler(FetchError)
 async def fetch_err(req, e: FetchError):
     return JSONResponse({"success": False, "error": str(e), "code": e.code}, status_code=400 if e.code in (
-        "INVALID_URL", "BLOCKED_PRIVATE", "BAD_ACTION", "UNSUPPORTED_TYPE") else 502)
+        "INVALID_URL", "BLOCKED_PRIVATE", "BAD_ACTION", "UNSUPPORTED_TYPE", "ACTION_FAILED", "PARSE_ERROR") else 502)
 
 
 @app.exception_handler(Exception)

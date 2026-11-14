@@ -33,7 +33,7 @@ async def _save_file(data: bytes, mime="image/png") -> str:
 
 
 def looks_js_only(html: str, text: str) -> bool:
-    return len(text) < 250 and (html.count("<script") >= 3 or 'id="root"' in html or 'id="__next"' in html
+    return len(text) < 250 and (html.count("<script") >= 1 or 'id="root"' in html or 'id="__next"' in html
                                 or 'id="app"' in html)
 
 
