@@ -39,3 +39,4 @@ pre{background:#0b1720;color:#d6e2ea;padding:12px;border-radius:8px;overflow:aut
 .muted{color:var(--mut)}
 code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:13px}
 @media(max-width:640px){main{padding:14px}.top{padding:10px 14px}}
+nav[hidden]{display:none}

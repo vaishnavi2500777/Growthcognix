@@ -177,12 +177,12 @@ async def overpass(q: str) -> list[dict]:
     """Try the public Overpass servers with retries (they return 504/timeouts under load)."""
     errs = []
     mail, coffee, de, kumi = OVERPASS
-    for ep in (mail, mail, coffee, mail, mail, kumi, mail, de, mail):
+    for ep in (mail, coffee, mail, mail, kumi, mail):
         try:
             return await _overpass_one(ep, q)
         except Exception as e:
             errs.append(f"{urlparse(ep).hostname}: {type(e).__name__} {str(e)[:60]}")
-        await asyncio.sleep(6)
+        await asyncio.sleep(4)
     raise LeadError("OpenStreetMap Overpass unavailable (" + "; ".join(errs[-4:]) + ")")
 
 
@@ -231,16 +231,17 @@ async def nominatim_pois(geo, category, kws, cap=120) -> list[dict]:
 async def osm_elements(geo, category, kws, report) -> tuple[list[dict], list[str]]:
     qs = build_queries(geo, category, kws)
     seen, out, errs = set(), [], []
-    for i, q in enumerate(qs):
-        await report(stage=f"{geo['name'].split(',')[0]}: OpenStreetMap query {i + 1}/{len(qs)}")
-        try:
-            for e in await overpass(q):
-                k = (e["type"], e["id"])
-                if k not in seen:
-                    seen.add(k)
-                    out.append(e)
-        except LeadError as e:
-            errs.append(str(e))
+    await report(stage=f"{geo['name'].split(',')[0]}: querying OpenStreetMap ({len(qs)} queries)")
+    res = await asyncio.gather(*(overpass(q) for q in qs), return_exceptions=True)
+    for r in res:
+        if isinstance(r, Exception):
+            errs.append(str(r))
+            continue
+        for e in r:
+            k = (e["type"], e["id"])
+            if k not in seen:
+                seen.add(k)
+                out.append(e)
     if not out and errs:
         await report(stage=f"{geo['name'].split(',')[0]}: Overpass down, using Nominatim search")
         try:
